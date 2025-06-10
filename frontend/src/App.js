@@ -9,7 +9,7 @@ import Browse from './components/Browse';
 import Admin from './components/Admin';
 import Review from './components/Review';
 import Profile from './components/Profile';
-import Footer from './components/Footer'; // Import the Footer
+import Footer from './components/Footer';
 import axios from 'axios';
 import './App.css';
 
@@ -24,20 +24,40 @@ function App() {
     const fetchMovies = async () => {
       try {
         const response = await axios.get('http://localhost:15400/api/movies/published');
-        setMovies(response.data);
+        if (response.data && Array.isArray(response.data)) {
+          setMovies(response.data);
+        } else {
+          console.warn('Unexpected movies data format:', response.data);
+          setMovies([]);
+        }
       } catch (error) {
         console.error('Error fetching movies:', error);
+        setMovies([]); // Fallback to empty array on error
       }
     };
     fetchMovies();
 
+    // Safely parse user data from localStorage
     const token = localStorage.getItem('token');
-    const user = JSON.parse(localStorage.getItem('user'));
-    if (token && user) {
-      setIsSignedIn(true);
-      setUserEmail(user.email);
-      setUserFullName(user.fullName || '');
-      setIsAdmin(user.role === 'admin');
+    const userData = localStorage.getItem('user');
+    if (token && userData) {
+      try {
+        const user = JSON.parse(userData);
+        if (user && typeof user === 'object' && user.email) {
+          setIsSignedIn(true);
+          setUserEmail(user.email);
+          setUserFullName(user.fullName || '');
+          setIsAdmin(user.role === 'admin');
+        } else {
+          console.warn('Invalid user data in localStorage:', userData);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user'); // Clear invalid data
+      }
     }
   }, []);
 
@@ -64,7 +84,6 @@ function App() {
             <Route path="/admin" element={isAdmin ? <Admin setMovies={setMovies} /> : <Navigate to="/signin" />} />
             <Route path="/review/:movieId" element={<Review movies={movies} setMovies={setMovies} isSignedIn={isSignedIn} userEmail={userEmail} userFullName={userFullName} />} />
             <Route path="/profile" element={isSignedIn ? <Profile movies={movies} userEmail={userEmail} userFullName={userFullName} /> : <Navigate to="/signin" />} />
-            {/* Placeholder routes for footer links */}
             <Route path="/about" element={<div className="page"><h1>About Us</h1><p>Coming soon...</p></div>} />
             <Route path="/privacy" element={<div className="page"><h1>Privacy Policy</h1><p>Coming soon...</p></div>} />
           </Routes>
