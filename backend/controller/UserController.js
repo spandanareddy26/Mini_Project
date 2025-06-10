@@ -1,86 +1,195 @@
 const User = require('../models/User');
-const Admin = require('../models/Admin');
+const Movie = require('../models/Movie');
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// User Sign Up
+// User signup
 exports.signUp = async (req, res) => {
-  const { fullName, email, password } = req.body;
   try {
-    // Check if fullName (username) or email already exists
-    let user = await User.findOne({ $or: [{ fullName }, { email }] });
-    if (user) {
-      if (user.fullName === fullName) {
-        return res.status(400).json({ message: 'Username already exists' });
-      }
-      if (user.email === email) {
-        return res.status(400).json({ message: 'Email already exists' });
-      }
+    const { fullName, email, password } = req.body;
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ message: 'Full name, email, and password are required' });
     }
 
-    // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    user = new User({ fullName, email, password: hashedPassword });
-    await user.save();
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
 
-    res.status(201).json({ message: 'Account created successfully' });
+    const user = new User({ fullName, email, password });
+    await user.save();
+    console.log('User registered successfully:', { fullName, email }); // Debug log
+    res.status(201).json({ message: 'User registered successfully', user: { fullName, email } });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error in signUp:', error.message, error.stack);
+    res.status(500).json({ message: 'Server error in signUp', error: error.message });
   }
 };
 
-// User Sign In
+// User signin
 exports.signIn = async (req, res) => {
-  const { email, password } = req.body;
   try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    const token = jwt.sign(
-      { id: user._id, email: user.email, fullName: user.fullName, role: 'user' },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-    res.status(200).json({
-      token,
-      user: { id: user._id, email: user.email, fullName: user.fullName, role: 'user' },
-    });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    console.log('User signed in successfully:', { email, token }); // Debug log
+    res.status(200).json({ message: 'Login successful', token, user: { fullName: user.fullName, email: user.email } });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error in signIn:', error.message, error.stack);
+    res.status(500).json({ message: 'Server error in signIn', error: error.message });
   }
 };
 
-// Admin Sign In
+// Admin signin
 exports.adminSignIn = async (req, res) => {
-  const { email, password } = req.body;
   try {
-    const admin = await Admin.findOne({ email });
-    if (!admin) {
-      return res.status(400).json({ message: 'Invalid admin credentials' });
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    const isMatch = await bcrypt.compare(password, admin.password);
+    const user = await User.findOne({ email, role: 'admin' });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid admin credentials' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid admin credentials' });
+      return res.status(401).json({ message: 'Invalid admin credentials' });
     }
 
-    const token = jwt.sign(
-      { id: admin._id, email: admin.email, role: 'admin' },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-    res.status(200).json({
-      token,
-      admin: { id: admin._id, email: admin.email, role: 'admin' },
-    });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    console.log('Admin signed in successfully:', { email, token }); // Debug log
+    res.status(200).json({ message: 'Admin login successful', token, user: { fullName: user.fullName, email: user.email } });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error in adminSignIn:', error.message, error.stack);
+    res.status(500).json({ message: 'Server error in adminSignIn', error: error.message });
+  }
+};
+
+// Add movie to watchlist
+exports.addToWatchlist = async (req, res) => {
+  try {
+    console.log('addToWatchlist called with req.user:', req.user); // Debug log
+    if (!req.user || !req.user.id) {
+      console.log('No user found in request'); // Debug log
+      return res.status(401).json({ message: 'Unauthorized: No user authenticated' });
+    }
+
+    const userId = req.user.id;
+    const { movieId } = req.body;
+
+    console.log('User ID:', userId, 'Movie ID:', movieId); // Debug log
+
+    if (!movieId || !mongoose.Types.ObjectId.isValid(movieId)) {
+      console.log('Invalid movie ID:', movieId); // Debug log
+      return res.status(400).json({ message: 'Invalid movie ID' });
+    }
+
+    const movie = await Movie.findById(movieId);
+    if (!movie) {
+      console.log('Movie not found for ID:', movieId); // Debug log
+      return res.status(404).json({ message: 'Movie not found' });
+    }
+
+    let user = await User.findById(userId);
+    if (!user) {
+      console.log('User not found for ID:', userId); // Debug log
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.watchlist.includes(movieId)) {
+      console.log('Movie already in watchlist for user:', userId); // Debug log
+      return res.status(400).json({ message: 'Movie already in watchlist' });
+    }
+
+    user.watchlist.push(movieId);
+    await user.save();
+    console.log('Watchlist updated for user:', userId); // Debug log
+
+    user = await User.findById(userId).populate('watchlist');
+    res.status(200).json({ message: 'Movie added to watchlist', watchlist: user.watchlist });
+  } catch (error) {
+    console.error('Error in addToWatchlist:', error.message, error.stack); // Detailed error log
+    res.status(500).json({ message: 'Server error in addToWatchlist', error: error.message });
+  }
+};
+
+// Remove movie from watchlist
+exports.removeFromWatchlist = async (req, res) => {
+  try {
+    console.log('removeFromWatchlist called with req.user:', req.user); // Debug log
+    if (!req.user || !req.user.id) {
+      console.log('No user found in request'); // Debug log
+      return res.status(401).json({ message: 'Unauthorized: No user authenticated' });
+    }
+
+    const userId = req.user.id;
+    const { movieId } = req.body;
+
+    console.log('User ID:', userId, 'Movie ID:', movieId); // Debug log
+
+    if (!movieId || !mongoose.Types.ObjectId.isValid(movieId)) {
+      console.log('Invalid movie ID:', movieId); // Debug log
+      return res.status(400).json({ message: 'Invalid movie ID' });
+    }
+
+    let user = await User.findById(userId);
+    if (!user) {
+      console.log('User not found for ID:', userId); // Debug log
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.watchlist.includes(movieId)) {
+      console.log('Movie not in watchlist for user:', userId); // Debug log
+      return res.status(400).json({ message: 'Movie not in watchlist' });
+    }
+
+    user.watchlist = user.watchlist.filter(id => id.toString() !== movieId);
+    await user.save();
+    console.log('Watchlist updated for user:', userId); // Debug log
+
+    user = await User.findById(userId).populate('watchlist');
+    res.status(200).json({ message: 'Movie removed from watchlist', watchlist: user.watchlist });
+  } catch (error) {
+    console.error('Error in removeFromWatchlist:', error.message, error.stack); // Detailed error log
+    res.status(500).json({ message: 'Server error in removeFromWatchlist', error: error.message });
+  }
+};
+
+// Get user's watchlist
+exports.getWatchlist = async (req, res) => {
+  try {
+    console.log('getWatchlist called with req.user:', req.user); // Debug log
+    if (!req.user || !req.user.id) {
+      console.log('No user found in request'); // Debug log
+      return res.status(401).json({ message: 'Unauthorized: No user authenticated' });
+    }
+
+    const userId = req.user.id;
+    const user = await User.findById(userId).populate('watchlist');
+    if (!user) {
+      console.log('User not found for ID:', userId); // Debug log
+      return res.status(404).json({ message: 'User not found' });
+    }
+    console.log('Watchlist retrieved for user:', userId); // Debug log
+    res.status(200).json(user.watchlist);
+  } catch (error) {
+    console.error('Error in getWatchlist:', error.message, error.stack); // Detailed error log
+    res.status(500).json({ message: 'Server error in getWatchlist', error: error.message });
   }
 };
